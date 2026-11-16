@@ -1,0 +1,7 @@
+# Backups made by the scripts: firmware images contain device-unique keys
+# (HDCP, CI+, TEE). APKs are other people's software. Never commit either.
+tv-backup/
+*.img
+*.apk
+*.bin
+MANIFEST.txt
