@@ -22,6 +22,27 @@ It was written while fixing a real TV: a **Video-scape VST358C** (MStar MSD6A358
 
 ---
 
+## Quick start: control the TV from your laptop (`tvctl`)
+
+[`tvctl.py`](tvctl.py) is a single-file tool that needs only Python 3.8+ and no other installs. It finds the TV on your Wi-Fi, connects to it, and turns your laptop keyboard into the TV remote.
+
+```sh
+python tvctl.py setup-adb              # only if you don't have adb: downloads Google's platform-tools
+python tvctl.py find                   # scans your Wi-Fi for TVs with ADB open
+python tvctl.py connect 192.168.1.15   # accept "Allow USB debugging?" on the TV; remembered
+python tvctl.py remote                 # arrows / Enter / Backspace / h=Home / +- volume / t=type / q=quit
+```
+
+| Command | What it does |
+|---|---|
+| `remote` | Keyboard remote: arrows, Enter = OK, Backspace/Esc = Back, `h` Home, `m` Menu, `+`/`-` volume, `0` mute, `p` play/pause, `[` `]` rewind/forward, `,` `.` channel, `i` input/source, `s` settings, `t` type text, `y` SmartTube, `k` Kodi, `P` power, `q` quit |
+| `key ok back home volup …` | Send one or more keys. Names or any Android keycode number. |
+| `type "text"` | Type into the focused text box, much faster than the on-screen keyboard |
+| `open smarttube` / `open <package>` | Launch an app. Add your own aliases under `"apps"` in `~/.tvctl/config.json`. |
+| `apps`, `install file.apk`, `info`, `screenshot`, `shell [cmd]`, `reboot`, `disconnect` | What they say |
+
+First you need to turn on **USB debugging** on the TV (step 1 below). Everything else in this guide also works with plain `adb`.
+
 ## 0. What you need
 
 - A computer (Windows, macOS or Linux) on the **same Wi-Fi** as the TV.
@@ -131,6 +152,20 @@ sh scripts/remap-ok-key.sh              # auto-detects the IR remote's .kl file;
 adb -s $TV shell su 0 reboot            # a FULL reboot; standby does not reload key layouts
 ```
 
+## 9b. Make the remote's YouTube button open SmartTube
+
+On these TVs, the YouTube button sends a vendor key (`KEY_FN_E`, code `0x1e1`, labelled `VS_APP2` in the key layout). The stock launcher used it to open the old YouTube app. Once that app is gone, the button does nothing.
+```sh
+sh scripts/install-app-button.sh                     # YouTube button -> SmartTube, at every boot
+KEYCODE=0x1e1 PKG=org.xbmc.kodi ACT=org.xbmc.kodi.Splash sh scripts/install-app-button.sh   # any button -> any app
+sh scripts/install-app-button.sh --remove
+```
+- **How it works:** a small root listener ([`device-files/install-recovery.sh`](device-files/install-recovery.sh)) reads the remote's input device and runs `am start` when it sees the button. It starts at boot through the stock `init.rc` service **`flash_recovery`**, which runs `/system/etc/install-recovery.sh`. Most KitKat TVs don't have that file, so the boot image doesn't need editing.
+- The installer **refuses** if the TV has no such service, or if an `install-recovery.sh` already exists that isn't ours. On some devices that file flashes recovery or starts SuperSU.
+- It **self-tests** by injecting a fake button press with `sendevent`, then checks that the app came up.
+- **Find any button's code:** run `adb shell su 0 getevent` and press the button. `0001 01e1 00000001` means `KEYCODE=0x1e1`.
+- **Gotcha we hit:** `getevent | while read …` doesn't work on KitKat, because getevent buffers its output when piped, so the listener reads `/dev/input/eventN` directly with `dd` and `od`. KitKat's toolbox also has no `basename`, so use `busybox basename`.
+
 ## 10. Make it faster
 
 ```sh
@@ -172,6 +207,7 @@ Then turn **USB debugging off** on the TV under Developer options, and turn it b
 | Let's Encrypt root | `sh scripts/install-isrg-root.sh --remove` |
 | Ad-block hosts | `sh scripts/install-adblock-hosts.sh --restore` |
 | OK-key remap | `sh scripts/remap-ok-key.sh --restore`, then reboot |
+| YouTube-button → app | `sh scripts/install-app-button.sh --remove` |
 | Animations | `sh scripts/tune-performance.sh --revert` |
 | Installed apps | `adb -s $TV uninstall org.smarttube.stable` (Kodi: `org.xbmc.kodi`) |
 
@@ -195,7 +231,8 @@ Then turn **USB debugging off** on the TV under Developer options, and turn it b
 - **Updates:** the update server is set to a private factory address, so **this TV can never receive updates.**
 - **DRM:** `widevine/config.ini` points to a `KeyBox.bin` that doesn't exist, and there are no Widevine libraries. That's the definitive reason Netflix, Hotstar and Prime can't work.
 - **Hardware decoders:** AVC, HEVC, VP8 and VP9 (VP9 limited below 1440p), MPEG-2 and others.
-- **Remote:** "Vstv Smart TV IR Receiver", layout file `Vendor_0208_Product_0001.kl`. OK = `KEY_ENTER` (scancode 28).
+- **Remote:** "Vstv Smart TV IR Receiver" (`/dev/input/event0`), layout file `Vendor_0208_Product_0001.kl`. OK = `KEY_ENTER` (scancode 28). YouTube button = `KEY_FN_E` (481, `0x1e1`, `VS_APP2`). The colored keys send `KEY_FN_F`, `KEY_FN_S` and `KEY_FN_B` (`VS_APP3`–`VS_APP5`).
+- **Boot hook:** `init.rc` defines `service flash_recovery /system/etc/install-recovery.sh` (class main, oneshot), and the file is absent on stock firmware.
 
 ## Credits and further reading
 
