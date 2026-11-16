@@ -5,3 +5,5 @@ tv-backup/
 *.apk
 *.bin
 MANIFEST.txt
+__pycache__/
+*.pyc
